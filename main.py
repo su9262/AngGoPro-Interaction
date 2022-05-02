@@ -3,44 +3,44 @@
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 import ctypes
+import math
 import sys
 import serial
 import serial.tools.list_ports as sp
 import cv2
 from multiprocessing import Process, Queue
+from threading import Thread
 import time
 import numpy as np
 from ctypes import cdll
 import mediapipe as mp
 from matplotlib import pyplot as plt
-import ckwrap
-import pygame
-import random
+#import ckwrap
+import kmeans1d
 from game1 import *
-from sklearn.cluster import MeanShift, estimate_bandwidth
-
 
 mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
-mp_pose = mp.solutions.pose
 mp_selfie_segmentation = mp.solutions.selfie_segmentation
 BG_COLOR = (0, 0, 0) # gray
 
 ANGGOPORT = 'COM13'
 LIDARPORT = 'COM14'
+# LIDARPORT = '/dev/ttyACM1' #0x5740
+# ANGGOPORT = '/dev/ttyACM0'
+
 BAUDRATE    = 10000000
 startbit    = 0xF5
 packet      = []
 crop = []
-
-
 
 img = np.array([])
 ampImg = np.array([])
 frame = np.array([])
 ampFrame = np.array([])
 crclib = cdll.LoadLibrary('./crc.dll')
-
+# crclib = cdll.LoadLibrary('./crc.so')
+gyroYaw = 0
+running = 0
 
 class CrcCalc:
     def __init__(self):
@@ -88,69 +88,45 @@ def onMouse(event,x,y,flags,param):
 
         print(frame[y][x] * 8000 / 255)
 
+def mediapipeHuman(selfie_segmentation,input_frame,threshold):
+    bg_image = None
+    image = input_frame
+    image = cv2.merge([image, image, image])
+    # To improve performance, optionally mark the image as not writeable to
+    # pass by reference.
+    image.flags.writeable = False
+    results = selfie_segmentation.process(image)  # RGB값을 필요로 함
+    image.flags.writeable = True
+    # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    # Draw selfie segmentation on the background image.
+    # To improve segmentation around boundaries, consider applying a joint
+    # bilateral filter to "results.segmentation_mask" with "image".
+    condition = np.stack(  # BGR값을 필요로 함
+        (results.segmentation_mask,) * 3, axis=-1) > threshold
+    # The background can be customized.
+    #   a) Load an image (with the same width and height of the input image) to
+    #      be the background, e.g., bg_image = cv2.imread('/path/to/image/file')
+    #   b) Blur the input image by applying image filtering, e.g.,
+    if bg_image is None:
+        bg_image = np.zeros(image.shape, dtype=np.uint8)
+        bg_image[:] = BG_COLOR
+    # output_image = np.where(condition.squeeze()[:,:,0], image, bg_image)
+    output_image = np.where(condition, image, bg_image)
+    
+    contours, hierarchy = cv2.findContours(output_image[:, :, 0], cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    input_frame = cv2.merge([input_frame, input_frame, input_frame])
 
+    if contours:
+        idx = np.argmax([cv2.contourArea(cnt) for cnt in contours])
+        x, y, w, h = cv2.boundingRect(contours[idx])
+        input_frame = cv2.rectangle(input_frame, (x, y), (x + w, y + h), (0, 255, 255), 2)
 
-def mediapipeHuman(input_frame,model_select,threshold):
-    with mp_selfie_segmentation.SelfieSegmentation(model_selection=model_select) as selfie_segmentation:
-        bg_image = None
-        image = input_frame
-        image = cv2.merge([image, image, image])
-        # To improve performance, optionally mark the image as not writeable to
-        # pass by reference.
-        image.flags.writeable = False
-        results = selfie_segmentation.process(image)  # RGB값을 필요로 함
-        image.flags.writeable = True
-        # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-        # Draw selfie segmentation on the background image.
-        # To improve segmentation around boundaries, consider applying a joint
-        # bilateral filter to "results.segmentation_mask" with "image".
-        condition = np.stack(  # BGR값을 필요로 함
-            (results.segmentation_mask,) * 3, axis=-1) > threshold
-        # The background can be customized.
-        #   a) Load an image (with the same width and height of the input image) to
-        #      be the background, e.g., bg_image = cv2.imread('/path/to/image/file')
-        #   b) Blur the input image by applying image filtering, e.g.,
-        if bg_image is None:
-            bg_image = np.zeros(image.shape, dtype=np.uint8)
-            bg_image[:] = BG_COLOR
-        output_image = np.where(condition, image, bg_image)
+        return input_frame,output_image,[x,y,w,h]
+    else:
+        return cv2.merge([ampFrame, ampFrame, ampFrame]),[],None
 
-        contours, hierarchy = cv2.findContours(output_image[:, :, 0], cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-        input_frame = cv2.merge([input_frame, input_frame, input_frame])
-
-        if contours:
-            idx = np.argmax([cv2.contourArea(cnt) for cnt in contours])
-            x, y, w, h = cv2.boundingRect(contours[idx])
-            input_frame = cv2.rectangle(input_frame, (x, y), (x + w, y + h), (0, 255, 255), 2)
-
-            return input_frame,output_image,[x,y,w,h]
-        else:
-            return cv2.merge([ampFrame, ampFrame, ampFrame]),[],None
-
-
-
-def main():
-    global frame, ampFrame,img,ampImg,crop
-    connected = []
-    inf = Queue
-    ProcessFacial = Process(target=timaface, args=(inf,))
-    ProcessFacial.start()
-    serList = sp.comports()
-    for i in serList:
-        connected.append(i.device)
-    print("connected serial port", connected)
-
-    ser = serial.Serial(
-        port=LIDARPORT,
-        baudrate=BAUDRATE,
-        parity=serial.PARITY_NONE,
-        stopbits=serial.STOPBITS_ONE,
-        bytesize=serial.EIGHTBITS,
-        timeout=0.1) # 0 (non-block) / 0.1(100ms)
-
-    if ser.isOpen():
-        print("Serial port is opened")
-
+def commAngGo():
+    global gyroYaw,running
     angSer = serial.Serial(
         port=ANGGOPORT,
         baudrate=115200,
@@ -158,11 +134,55 @@ def main():
         stopbits=serial.STOPBITS_ONE,
         bytesize=serial.EIGHTBITS,
         timeout=0.1)  # 0 (non-block) / 0.1(100ms)
-
-
+    
     if angSer.isOpen():
         print("conneted with AngGo Pro!")
+        running = True
+    else:
+        running = False
+    while running:
+        msg = angSer.readline().decode()
+        if not msg:
+            continue
+        if msg[0] == '<' and msg[8] == '>':
+            cmd = msg[1:4]
+            param = msg[4:8]
+            if cmd == 'GYR':
+                gyroYaw = int(param)
+                print('thread yaw : ',gyroYaw)
+    print("disconneted with AngGo Pro!")
+    angSer.close()
+    return 0
 
+def main():
+    global frame, ampFrame,img,ampImg,crop,running
+    connected = []
+    inf = Queue()
+    ProcessFacial = Process(target=timaface, args=(inf,))
+    ThreadAngGo = Thread(target=commAngGo)
+    ProcessFacial.start()
+    ThreadAngGo.start()
+
+    serList = sp.comports()
+    for i in serList:
+        connected.append(i.device)
+    print("*"*50)
+    print("connected serial port", connected)
+    print("*"*50)
+
+    ser = serial.Serial(
+        port=LIDARPORT,
+        baudrate=BAUDRATE,
+        parity=serial.PARITY_NONE,
+        stopbits=serial.STOPBITS_ONE,
+        bytesize=serial.EIGHTBITS,
+        timeout=1) # 0 (non-block) / 0.1(100ms)
+        
+    if ser.isOpen():
+        print("Serial port is opened")
+        running = True
+    else:
+        running = False
 
     GetDisPck = [0xF5, 0X20,
                  0x00, 0x00, 0x00, 0x00,
@@ -174,16 +194,16 @@ def main():
                  0x00, 0x00, 0x00, 0x00,
                  0xE9, 0xDF, 0xE8, 0x9E]
 
-    setAuto3D = [0xF5, 0x00, 0x00, 0x1E,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x47, 0x70,
-                0xEC, 0xC0]
+    setAuto3D = [0xF5, 0x00, 0xFF, 0x00,
+                 0x00, 0x00, 0x00, 0x00,
+                 0x00, 0x00, 0x50, 0x7D,
+                 0x12, 0xEB]
 
-    finding = True
-    data = np.array([])
-    cur = time.time()
-    center = []
-    ll = 160 * 60 * 2
+    setExposure = [0xF5, 0x00, 0x00, 0x1E,
+                   0x00, 0x00, 0x00, 0x00,
+                   0x00, 0x00, 0x47, 0x70,
+                   0xEC, 0xC0]
+
     cv2.namedWindow('distance')
     cv2.namedWindow('amplitude')
     cv2.setMouseCallback('distance', onMouse)
@@ -196,20 +216,27 @@ def main():
     #     setAuto3D[2] = (time[i] & 0xff)
     #     setAuto3D[3] = ((time[i] >> 8) & 0xff)
     #     setAuto3D
+    
+    selfie_segmentation = mp_selfie_segmentation.SelfieSegmentation(model_selection=1)
+    b = 0
 
-    while finding:
+    # ser.write(bytearray(GetDisAmp))
+    # ser.write(bytearray(setExposure))
+
+    # ser.write(bytearray(setAuto3D))
+    time.sleep(1)
+    while running:
         ser.write(bytearray(GetDisAmp))
         rxdata = ser.read()
-
-        # msg = angSer.readline()
-        # print(msg)
-
+        a = time.time()
+        # print("fps : ", round(1 / (a - b)))
+        b = a
         if rxdata == b'\xfa':
-            tp = time.time()
+            
             data = [0xfa]
             data.extend(ser.read(3+38480+4)) # task time : (측정값 : 0.15~0.17sec) == (이론값 : 0.15 =  19280 bytes / 10M bps
             # data.extend(ser.read(3+19280+4))  # task time : (측정값 : 0.15~0.17sec) == (이론값 : 0.15 =  19280 bytes / 10M bps
-
+            
             arr = (ctypes.c_uint8 * len(data[:-4]))(*data[:-4])
             result = crclib.calcCrc32_32(arr, ctypes.c_uint32(len(data[:-4])))
             result = ctypes.c_uint32(result).value
@@ -224,16 +251,17 @@ def main():
                 img = np.array(img,dtype=float)
                 ampImg = np.array(ampImg, dtype=float)
                 img = np.where(img > 8000,8000,img) / 8000 * 255
-                ampImg = np.where(ampImg > 2000, 2000, ampImg) / 1000 * 255
+                ampImg = np.where(ampImg > 2000, 2000, ampImg) / 2000 * 255
 
                 frame = np.reshape(img, (60, 160))
                 ampFrame = np.reshape(ampImg, (60, 160))
-
+                
                 frame = cv2.resize(frame, (0, 0), fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
                 ampFrame = cv2.resize(ampFrame, (0, 0), fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
 
                 frame = frame.astype('uint8')
                 ampFrame = ampFrame.astype('uint8')
+                
                 ampFrame = cv2.equalizeHist(ampFrame)
 
                 ''' rotate image'''
@@ -249,13 +277,12 @@ def main():
                 #                   (255, 255, 255), 2)
 
                 ' ---- Media Pipe ----'
-                ampFrame,segmented,loc = mediapipeHuman(ampFrame,1,0.5)
-
+                ampFrame, segmented, loc = mediapipeHuman(selfie_segmentation,ampFrame,0.1)
                 if len(segmented) > 1:
-                    frame = np.where(segmented[:,:,0] == BG_COLOR[0], 0 , frame)
+                    segframe = np.where(segmented[:,:,0] == BG_COLOR[0], 0 , frame)
                 if loc :
                     x,y,w,h = loc
-                    cropImg = np.array(frame[y:y+h,x:x+w],dtype=float)
+                    cropImg = np.array(segframe[y:y+h,x:x+w],dtype=float)
                     crop = cropImg * 8000 / 255
                     ampFrame = cv2.circle(ampFrame,(x+w//2,y+h//2),5,(255,0,0),-1)
                     ch,cw = crop.shape
@@ -263,32 +290,50 @@ def main():
                     cropflat = crop.ravel()
                     lenCF = len(cropflat)
                     numCluster = 3
-                    if lenCF > 10:
-                        try:
-                            km = ckwrap.ckmeans(cropflat,numCluster)
-                            buckets = [[],[],[]]
-                            for i in range(lenCF):
-                                buckets[km.labels[i]].append(cropflat[i])
-                            for i,cluster in enumerate(buckets):
-                                if np.var(cluster) == 0:
-                                    del buckets[i]
+                    buckets = [[],[],[]]
+                    clusters, centroids = kmeans1d.cluster(cropflat,numCluster)
+                    for i in range(lenCF):
+                        buckets[clusters[i]].append(cropflat[i])
+                    freq = [len(i) for i in buckets]
+                    idx = np.argmax(freq)
+                    distanceHuman = centroids[idx]
 
-                            freq = [len(i) for i in buckets]
-                            idx = np.argmax(freq)
-                            print("중간 픽셀 거리 : ", crop[ch // 2][cw // 2], end="\t")
-                            print("kmenas 평균 : ",np.mean(buckets[idx]))
+                    # print(centroids)
+                    # if lenCF > 10:
+                    #     try:
+                    #         km = ckwrap.ckmeans(cropflat,numCluster)
+                    #         buckets = [[],[],[]]
+                    #         for i in range(lenCF):
+                    #             buckets[km.labels[i]].append(cropflat[i])
+                    #         for i,cluster in enumerate(buckets):
+                    #             if np.var(cluster) == 0:
+                    #                 del buckets[i]
+                    #
+                    #         freq = [len(i) for i in buckets]
+                    #         idx = np.argmax(freq)
+                    #         # print("중간 픽셀 거리 : ", crop[ch // 2][cw // 2], end="\t")
+                    #         distanceHuman = np.mean(buckets[idx])
+                    #         # print("kmenas 평균 : ",distanceHuman)
+                    #
+                    #         size = frame.shape
+                    #     except:
+                    #         pass
+                    # if not anggoQueue.empty():
+                    #     yaw = anggoQueue.get()
+                    #     yaw = np.clip(yaw,-90,90)
 
-                        except:
-                            pass
+                    heading = round((np.clip(gyroYaw,-30,30) + 30) / 60 * 2) + 1
+                    # print('heading',heading)
+                    size = frame.shape
+                    inf.put([heading,
+                             4 - math.ceil((x + w // 2) / size[1] * 3),
+                             np.clip(distanceHuman,0,3000)])  # x,y,z
 
-
-
-
-                cv2.imshow("distance", frame)
+                colordis = cv2.applyColorMap(255-frame, cv2.COLORMAP_BONE)
+                cv2.imshow("distance", colordis)
                 cv2.imshow("amplitude", ampFrame)
-
                 key = cv2.waitKey(1) & 0xff
-
+            
                 if key == ord('c'):
                     km = ckwrap.ckmeans(crop.ravel(), numCluster)
                     print(km.labels)
@@ -310,52 +355,29 @@ def main():
                     plt.subplot(2, 2, 4)
                     plt.plot(buckets[2])
                     plt.show()
-                elif key == ord('a'):
-                    fig = plt.figure()
-                    ax = fig.add_subplot(111,projection='3d')
-                    y,x = crop.shape
-                    x = list(range(x))
-                    y = list(range(y))
-                    print(x,y)
-
-                    for _x in x:
-                        for _y in y:
-                            z = crop[_y][_x]
-                            ax.scatter(_x,_y,z,c='b')
-                    plt.show()
-
-                elif key == ord('a'):
-                    fig = plt.figure()
-                    ax = fig.add_subplot(111,projection='3d')
-                    y,x = crop.shape
-                    x = list(range(x))
-                    y = list(range(y))
-                    print(x,y)
-
-                    for _x in x:
-                        for _y in y:
-                            z = crop[_y][_x]
-                            ax.scatter(_x,_y,z,c='b')
-                    plt.show()
 
                 elif key == ord('k'):
                     ori = np.array(frame,dtype=float) * 8000 / 255
-                    plt.hist(ori.ravel(), bins=100, range=(1, 8000))
+                    plt.hist(ori.ravel(), bins=1000, range=(1, 8000))
                     plt.show()
 
-
                 elif key == 27:
-                   finding = False
-                   ProcessFacial.terminate()
+                   running = False
+                   
                    break
 
-                # elif key == ord('s'):
-                #     cv2.imwrite('test.png')
+                elif key == ord('s'):
+                    cv2.imwrite('amplitude.png',ampFrame)
+                    cv2.imwrite('distance.png',colordis)
                 img = np.array([])
                 ampImg = np.array([])
 
     cv2.destroyAllWindows()
     ser.close()
+    ProcessFacial.join()
+    ThreadAngGo.join()
+
+    print("program terminated")
 
 if __name__ == '__main__':
     main()
