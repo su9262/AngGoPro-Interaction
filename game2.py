@@ -10,6 +10,10 @@ from pygame.locals import * # Daniel, FullScreen
 import random
 import time
 import ctypes # Daniel, FullScreen
+from screeninfo import get_monitors
+
+
+
 
 #remapping function
 def remap(x, in_min, in_max, out_min, out_max):
@@ -41,13 +45,19 @@ class Eye:
 def timaface(inf):
 	pygame.init()
 	clock = pygame.time.Clock()
-	# Set up the drawing window
-	screen = pygame.display.set_mode([1920, 515])
+	# screen = pygame.display.set_mode([1920, 515])  # 전체화면으로 전환
+	bardisplay = False
+	displynum = 1
+	for m in get_monitors():
+		print(m)
+		if m.width == 1920 and m.height == 515:
+			bardisplay = True
+			displynum = int(m.name[-1])
+	if bardisplay:
+		screen = pygame.display.set_mode([1920, 515],display=displynum)
+	else :
+		screen = pygame.display.set_mode([1920, 515] )
 
-	# Daniel Oh, Make Full Screen
-	user32 = ctypes.windll.user32
-	screensize = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)  # 해상도 구하기
-	screen = pygame.display.set_mode(screensize, FULLSCREEN)  # 전체화면으로 전환
 
 	#### INPUT VARIABLEs
 	xInput = 2 # 1 2 3
@@ -78,23 +88,25 @@ def timaface(inf):
 	leftEye = Eye(centerOfEye-distanceBetweenEyes, 515/2, 260, 230, 260/5, 260/4, 0, 0, 260/2)
 	rightEye = Eye(centerOfEye+distanceBetweenEyes, 515/2, 260, 230, 260/5, 260/4, 0, 0, 260/2)
 	distance = 0
-
+	heading = 0
+	humanXpos = 1920 // 2
 	time.sleep(1)
 	running = True
 	while running:
-
+		time.sleep(0.001)
 		if inf is not None:
 			if not inf.empty():
 				data = inf.get()
 				if data:
-					x, yaw, distance, = data
-					xLocationTarget = x  # (1,2,3)
-					pupilXInput = yaw  # (1,2,3)
+					heading, humanXpos, distance, = data
+					xLocationTarget = remap(heading,-30,30,0,1920)  # (1,2,3)
+					pupilXInput = humanXpos  # (1,2,3)
 					# print(data)
 
 
 		#### BASIC SET UP
-		screen.fill(0)
+		screen.fill(color='#000080')
+
 
 		#### KEY EVENTS FOR DEBUGGING
 		for event in pygame.event.get():
@@ -119,6 +131,7 @@ def timaface(inf):
 		#### LOGIC
 		leftEye.x = centerOfEye - distanceBetweenEyes
 		rightEye.x = centerOfEye + distanceBetweenEyes
+
 		# xInput = 3
 		# if xInput == 1:
 		# 	xLocationTarget = 0
@@ -137,39 +150,44 @@ def timaface(inf):
 
 	#	xLocation = pygame.mouse.get_pos()[0]
 		# #pupil set
-		if pupilXInput == 1:
-			xTargetPupil = 0
-		elif pupilXInput == 2:
-			xTargetPupil = 1920 / 2
-		else:
-			xTargetPupil = 1920
+		# if pupilXInput == 1:
+		# 	xTargetPupil = 0
+		# elif pupilXInput == 2:
+		# 	xTargetPupil = 1920 / 2
+		# else:
+		# 	xTargetPupil = 1920
+
+		xTargetPupil = remap(humanXpos, 0, 160, 0, 1920)
 		# #speed of pupil
 		xPupilspeed = remap(abs(xPupil - xTargetPupil), 0, 1920, 0, 60)
 		if xPupil > xTargetPupil:
 			xPupil -= xPupilspeed
 		else:
 			xPupil += xPupilspeed
-		leftEye.x_pupil = remap(xPupil, 0, 1920, leftEye.pupil_r + pupilSizeDifference,
-								leftEye.width - leftEye.pupil_r - pupilSizeDifference)
-		rightEye.x_pupil = remap(xPupil, 0, 1920, rightEye.pupil_r + pupilSizeDifference,
-								 rightEye.width - rightEye.pupil_r - pupilSizeDifference)
+		# leftEye.x_pupil = remap(xPupil, 0, 1920, leftEye.pupil_r + pupilSizeDifference,
+		# 						leftEye.width - leftEye.pupil_r - pupilSizeDifference)
+		# rightEye.x_pupil = remap(xPupil, 0, 1920, rightEye.pupil_r + pupilSizeDifference,
+		# 						 rightEye.width - rightEye.pupil_r - pupilSizeDifference)
+		leftEye.x_pupil = remap(xPupil, 0, 1920, leftEye.pupil_r, leftEye.width - leftEye.pupil_r)
+		rightEye.x_pupil = remap(xPupil, 0, 1920, rightEye.pupil_r, rightEye.width - rightEye.pupil_r)
+
 		centerOfEye = remap(xLocation, 0, 1920, leftEye.width/2+distanceBetweenEyes, 1920 - rightEye.width/2 - distanceBetweenEyes)
 
 		if xLocation >= 1920/2:
 			leftEye.width = 260
 			leftEye.height = 230
-			rightEye.width = remap(xLocation, 1920/2, 1920, 260, 200)
-			rightEye.height = remap(xLocation, 1920/2, 1920, 230, 280)
+			rightEye.width = remap(xLocation, 1920/2, 1920, 260, 160)
+			#rightEye.height = remap(xLocation, 1920/2, 1920, 230, 280)
 			distanceBetweenEyes = remap(xLocation, 1920/2, 1920, (2*1920/16), leftEye.width/2)
 		else :
-			leftEye.width = remap(xLocation, 0, 1920/2, 200, 260)
-			leftEye.height = remap(xLocation, 0, 1920/2, 280, 230)
+			leftEye.width = remap(xLocation, 0, 1920/2, 160, 260)
+			#leftEye.height = remap(xLocation, 0, 1920/2, 280, 230)
 			rightEye.width = 260
 			rightEye.height = 230
 			distanceBetweenEyes = remap(xLocation, 0, 1920/2, rightEye.width/2, (2*1920/16))
 
 	#	pupilSizeDifference = remap(distanceValue, 0, 10, 0, 20)
-		pupilSizeDifference = remap(3000-distance, 300, 3000 , 5, 30) # for test
+		# pupilSizeDifference = remap(3000-distance, 300, 3000 , 5, 30) # for test
 
 		leftEye.pupil_height = remap(pygame.mouse.get_pos()[0], 0, 1920, 0, leftEye.height)
 
@@ -183,19 +201,30 @@ def timaface(inf):
 			shakeVariationY = 0
 
 		#### DRAWING PART
+		# Fill Bg
 		# Draw Eye
-		pygame.draw.rect(screen, ('#b8d8e1'), (int(leftEye.x)-leftEye.width/2, int(leftEye.y)-(leftEye.height-115), int(leftEye.width), int(leftEye.height)), 0, int(leftEye.roundness))
-		pygame.draw.rect(screen, ('#b8d8e1'), (int(rightEye.x)-rightEye.width/2, int(rightEye.y)-(rightEye.height-115), int(rightEye.width), int(rightEye.height)), 0, int(rightEye.roundness))
+		pygame.draw.rect(screen, (255, 255, 255), (int(leftEye.x)-leftEye.width/2, int(leftEye.y)-(leftEye.height-115), int(leftEye.width), int(leftEye.height)), 0, int(leftEye.roundness))
+		pygame.draw.rect(screen, (255, 255, 255), (int(rightEye.x)-rightEye.width/2, int(rightEye.y)-(rightEye.height-115), int(rightEye.width), int(rightEye.height)), 0, int(rightEye.roundness))
 		# Draw Pupil
-		pygame.draw.circle(screen, (255, 255, 255), (
-		int(leftEye.x) - leftEye.width / 2 + shakeVariationX + leftEye.x_pupil, int(leftEye.y) + shakeVariationY),
-						   int(leftEye.pupil_r) + pupilSizeDifference)
-		pygame.draw.circle(screen, (255, 255, 255), (
-		int(rightEye.x) - rightEye.width / 2 + shakeVariationX + rightEye.x_pupil, int(rightEye.y) + shakeVariationY),
-						   int(leftEye.pupil_r) + pupilSizeDifference)
+		# pygame.draw.circle(screen, (255, 255, 255), (
+		# int(leftEye.x) - leftEye.width / 2 + shakeVariationX + leftEye.x_pupil, int(leftEye.y) + shakeVariationY),
+		# 				   int(leftEye.pupil_r) + pupilSizeDifference)
+		pygame.draw.rect(screen, ('#000080'), (
+			int(leftEye.x) - leftEye.width / 2 + shakeVariationX + leftEye.x_pupil - (leftEye.width / 2) / 2,
+			int(leftEye.y) + shakeVariationY - int(leftEye.pupil_r),
+			leftEye.width / 2,
+			int(leftEye.pupil_r) * 2), 0, int(leftEye.roundness))
+		# pygame.draw.circle(screen, (255, 255, 255), (
+		# int(rightEye.x) - rightEye.width / 2 + shakeVariationX + rightEye.x_pupil, int(rightEye.y) + shakeVariationY),
+		# 				   int(leftEye.pupil_r) + pupilSizeDifference)
+		pygame.draw.rect(screen, ('#000080'), (
+			int(rightEye.x) - rightEye.width / 2 + shakeVariationX + rightEye.x_pupil - (rightEye.width / 2) / 2,
+			int(rightEye.y) + shakeVariationY - int(leftEye.pupil_r),
+			rightEye.width / 2,
+			int(rightEye.pupil_r) * 2), 0, int(rightEye.roundness))
 
 		#Draw blinking
-		randomBLink = random.randint(0, 150)
+		randomBLink = random.randint(0, 500)
 		if randomBLink == 55:
 			blink = True
 		# print(blink)
@@ -210,10 +239,10 @@ def timaface(inf):
 				blSp = 0
 
 			blinkingSpeed += blSp
-			pygame.draw.rect(screen, (0), (int(leftEye.x)-leftEye.width/2, int(leftEye.y)-(leftEye.height-115), int(leftEye.width), blinkingSpeed))
-			pygame.draw.rect(screen, (0), (int(leftEye.x)-leftEye.width/2, int(leftEye.y)-(leftEye.height/2-115)+(leftEye.height/2 - blinkingSpeed), int(leftEye.width), blinkingSpeed))
-			pygame.draw.rect(screen, (0), (int(rightEye.x)-rightEye.width/2, int(rightEye.y)-(rightEye.height-115), int(rightEye.width), blinkingSpeed))
-			pygame.draw.rect(screen, (0), (int(rightEye.x)-rightEye.width/2, int(rightEye.y)-(rightEye.height/2-115)+(rightEye.height/2 - blinkingSpeed), int(rightEye.width), blinkingSpeed))
+			pygame.draw.rect(screen, (255,255,255), (int(leftEye.x)-leftEye.width/2, int(leftEye.y)-(leftEye.height-115), int(leftEye.width), blinkingSpeed))
+			pygame.draw.rect(screen, (255,255,255), (int(leftEye.x)-leftEye.width/2, int(leftEye.y)-(leftEye.height/2-115)+(leftEye.height/2 - blinkingSpeed), int(leftEye.width), blinkingSpeed))
+			pygame.draw.rect(screen, (255,255,255), (int(rightEye.x)-rightEye.width/2, int(rightEye.y)-(rightEye.height-115), int(rightEye.width), blinkingSpeed))
+			pygame.draw.rect(screen, (255,255,255), (int(rightEye.x)-rightEye.width/2, int(rightEye.y)-(rightEye.height/2-115)+(rightEye.height/2 - blinkingSpeed), int(rightEye.width), blinkingSpeed))
 
 
 		# Flip the display

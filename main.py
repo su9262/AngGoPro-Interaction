@@ -15,9 +15,9 @@ import numpy as np
 from ctypes import cdll
 import mediapipe as mp
 from matplotlib import pyplot as plt
-#import ckwrap
+import ckwrap
 import kmeans1d
-from game1 import *
+from game2 import *
 
 mp_drawing = mp.solutions.drawing_utils
 mp_selfie_segmentation = mp.solutions.selfie_segmentation
@@ -144,12 +144,14 @@ def commAngGo():
         msg = angSer.readline().decode()
         if not msg:
             continue
-        if msg[0] == '<' and msg[8] == '>':
-            cmd = msg[1:4]
-            param = msg[4:8]
+        if msg.find('<') and msg.find('>'):
+            msg = msg.split('<')[-1]
+            msg = msg.split('>')[0]
+            cmd = msg[0:3]
+            param = msg[3:7]
             if cmd == 'GYR':
                 gyroYaw = int(param)
-                print('thread yaw : ',gyroYaw)
+                # print('thread yaw : ', gyroYaw)
     print("disconneted with AngGo Pro!")
     angSer.close()
     return 0
@@ -204,6 +206,11 @@ def main():
                    0x00, 0x00, 0x47, 0x70,
                    0xEC, 0xC0]
 
+    stopstream = [0xF5, 0x28, 0x00, 0x00,
+                  0x00, 0x00, 0x00, 0x00,
+                  0x00, 0x00, 0xF9, 0x7F,
+                  0x68, 0x81]
+
     cv2.namedWindow('distance')
     cv2.namedWindow('amplitude')
     cv2.setMouseCallback('distance', onMouse)
@@ -221,9 +228,10 @@ def main():
     b = 0
 
     # ser.write(bytearray(GetDisAmp))
-    # ser.write(bytearray(setExposure))
 
+    # ser.write(bytearray(setExposure))
     # ser.write(bytearray(setAuto3D))
+
     time.sleep(1)
     while running:
         ser.write(bytearray(GetDisAmp))
@@ -234,9 +242,7 @@ def main():
         if rxdata == b'\xfa':
             
             data = [0xfa]
-            data.extend(ser.read(3+38480+4)) # task time : (측정값 : 0.15~0.17sec) == (이론값 : 0.15 =  19280 bytes / 10M bps
-            # data.extend(ser.read(3+19280+4))  # task time : (측정값 : 0.15~0.17sec) == (이론값 : 0.15 =  19280 bytes / 10M bps
-            
+            data.extend(ser.read(3+38480+4))
             arr = (ctypes.c_uint8 * len(data[:-4]))(*data[:-4])
             result = crclib.calcCrc32_32(arr, ctypes.c_uint32(len(data[:-4])))
             result = ctypes.c_uint32(result).value
@@ -256,30 +262,18 @@ def main():
                 frame = np.reshape(img, (60, 160))
                 ampFrame = np.reshape(ampImg, (60, 160))
                 
-                frame = cv2.resize(frame, (0, 0), fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-                ampFrame = cv2.resize(ampFrame, (0, 0), fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+                frame = cv2.resize(frame, (0, 0), fx=1, fy=1, interpolation=cv2.INTER_CUBIC)
+                ampFrame = cv2.resize(ampFrame, (0, 0), fx=1, fy=1, interpolation=cv2.INTER_CUBIC)
 
                 frame = frame.astype('uint8')
                 ampFrame = ampFrame.astype('uint8')
-                
                 ampFrame = cv2.equalizeHist(ampFrame)
 
-                ''' rotate image'''
-                # frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                # ampFrame = cv2.rotate(ampFrame, cv2.ROTATE_90_CLOCKWISE)
-
-                ''' HOG + SVM detector'''
-                # boxes, weights = hog.detectMultiScale(ampFrame, winStride=(5, 5),padding=(2,2),finalThreshold=0.05)
-                # boxes = np.array([[x, y, x + w, y + h] for (x, y, w, h) in boxes])
-                # for (xA, yA, xB, yB) in boxes:
-                #     # display the detected boxes in the colour picture
-                #     cv2.rectangle(ampFrame, (xA, yA), (xB, yB),
-                #                   (255, 255, 255), 2)
 
                 ' ---- Media Pipe ----'
-                ampFrame, segmented, loc = mediapipeHuman(selfie_segmentation,ampFrame,0.1)
+                ampFrame, segmented, loc = mediapipeHuman(selfie_segmentation,ampFrame,0.2)
                 if len(segmented) > 1:
-                    segframe = np.where(segmented[:,:,0] == BG_COLOR[0], 0 , frame)
+                    segframe = np.where(segmented[:,:,0] == BG_COLOR[0], 255 , frame)
                 if loc :
                     x,y,w,h = loc
                     cropImg = np.array(segframe[y:y+h,x:x+w],dtype=float)
@@ -289,15 +283,28 @@ def main():
 
                     cropflat = crop.ravel()
                     lenCF = len(cropflat)
-                    numCluster = 3
-                    buckets = [[],[],[]]
+                    numCluster = 5
+                    buckets = [[],[],[],[],[]]
                     clusters, centroids = kmeans1d.cluster(cropflat,numCluster)
                     for i in range(lenCF):
                         buckets[clusters[i]].append(cropflat[i])
+                    buckets = buckets[:-1]
                     freq = [len(i) for i in buckets]
                     idx = np.argmax(freq)
-                    distanceHuman = centroids[idx]
 
+                    # temp = cv2.merge([segframe,segframe,segframe])
+                    # ampFrame = np.where((temp > n) & (temp < m) ,(255,0,0) , ampFrame)
+
+                    distanceHuman = np.mean(buckets[idx])
+
+                    # for i in buckets:
+                    #     print("분산 : ", np.var(i), "표준편차 : ", np.std(i), "평균 : ", np.mean(i))
+                    # cadidate = [9999,]
+                    # for e in buckets:
+                    #     if np.std(e) > 200 and np.std(e) < 800:
+                    #         cadidate.append(np.mean(e))
+
+                    print("center : %f  cluster : %f"%(crop[ch // 2][cw // 2],distanceHuman))
                     # print(centroids)
                     # if lenCF > 10:
                     #     try:
@@ -321,31 +328,36 @@ def main():
                     # if not anggoQueue.empty():
                     #     yaw = anggoQueue.get()
                     #     yaw = np.clip(yaw,-90,90)
-
-                    heading = round((np.clip(gyroYaw,-30,30) + 30) / 60 * 2) + 1
-                    # print('heading',heading)
                     size = frame.shape
-                    inf.put([heading,
-                             4 - math.ceil((x + w // 2) / size[1] * 3),
-                             np.clip(distanceHuman,0,3000)])  # x,y,z
+                    pupilPos = x + w // 2 #4 - math.ceil((x + w // 2) / size[1] * 3)
+
+                else:
+                    pupilPos = 80
+                    distanceHuman = 3000
+
+
+                heading = np.clip(gyroYaw, -30, 30)
+                print('thread yaw : ', gyroYaw)
+                inf.put([heading, pupilPos, np.clip(distanceHuman,500,3000)])  # x,y,z
 
                 colordis = cv2.applyColorMap(255-frame, cv2.COLORMAP_BONE)
                 cv2.imshow("distance", colordis)
                 cv2.imshow("amplitude", ampFrame)
                 key = cv2.waitKey(1) & 0xff
-            
+
                 if key == ord('c'):
+                    numCluster = 5
                     km = ckwrap.ckmeans(crop.ravel(), numCluster)
                     print(km.labels)
                     # [0 0 0 0 1 1 1 2 2]
-                    buckets = [[],[],[]]
+                    buckets = [[],[],[],[],[]]
                     for i in range(len(crop.ravel())):
                         buckets[km.labels[i]].append(crop.ravel()[i])
                     freq = [len(i) for i in buckets]
                     idx = np.argmax(freq)
                     print(np.mean(buckets[idx]))
                     for i in buckets:
-                        print("분산 : ", np.var(i), "표준편차 : ", np.std(i), "평균 : ", np.mean(i))
+                        print("분산 : ", np.var(i), "표준편차 : ", np.std(i), "평균 : ", np.mean(i), "빈도 : ",len(i))
                     plt.subplot(2,2,1)
                     plt.hist(crop.ravel(),bins=100,range=(1,8000))
                     plt.subplot(2,2,2)
@@ -371,11 +383,12 @@ def main():
                     cv2.imwrite('distance.png',colordis)
                 img = np.array([])
                 ampImg = np.array([])
-
+    ser.write(bytearray(stopstream))
     cv2.destroyAllWindows()
     ser.close()
     ProcessFacial.join()
     ThreadAngGo.join()
+
 
     print("program terminated")
 
