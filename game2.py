@@ -53,8 +53,9 @@ def timaface(inf):
 		if m.width == 1920 and m.height == 515:
 			bardisplay = True
 			displynum = int(m.name[-1])
+
 	if bardisplay:
-		screen = pygame.display.set_mode([1920, 515],display=displynum)
+		screen = pygame.display.set_mode([1920, 515],display=1)
 	else :
 		screen = pygame.display.set_mode([1920, 515] )
 
@@ -100,7 +101,7 @@ def timaface(inf):
 				if data:
 					heading, humanXpos, distance, = data
 					xLocationTarget = remap(heading,-30,30,0,1920)  # (1,2,3)
-					pupilXInput = humanXpos  # (1,2,3)
+					pupilXInput = 160-humanXpos  # (1,2,3)
 					# print(data)
 
 
@@ -142,7 +143,7 @@ def timaface(inf):
 
 
 		#speed of movement eye between pre-set positions
-		speed = remap(abs(xLocationTarget-xLocation), 0, 1920, 0, 50)
+		speed = remap(abs(xLocationTarget-xLocation), 0, 1920, 0, 30)
 		if xLocation > xLocationTarget:
 			xLocation -= speed
 		else:
@@ -157,7 +158,7 @@ def timaface(inf):
 		# else:
 		# 	xTargetPupil = 1920
 
-		xTargetPupil = remap(humanXpos, 0, 160, 0, 1920)
+		xTargetPupil = remap(pupilXInput, 0, 160, 0, 1920)
 		# #speed of pupil
 		xPupilspeed = remap(abs(xPupil - xTargetPupil), 0, 1920, 0, 60)
 		if xPupil > xTargetPupil:

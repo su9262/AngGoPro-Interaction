@@ -41,7 +41,8 @@ crclib = cdll.LoadLibrary('./crc.dll')
 # crclib = cdll.LoadLibrary('./crc.so')
 gyroYaw = 0
 running = 0
-
+rev = ''
+distanceHuman = 0
 class CrcCalc:
     def __init__(self):
         self.initValue = 0xFFFFFFFF
@@ -126,7 +127,7 @@ def mediapipeHuman(selfie_segmentation,input_frame,threshold):
         return cv2.merge([ampFrame, ampFrame, ampFrame]),[],None
 
 def commAngGo():
-    global gyroYaw,running
+    global gyroYaw,running,rev,distanceHuman
     angSer = serial.Serial(
         port=ANGGOPORT,
         baudrate=115200,
@@ -141,23 +142,32 @@ def commAngGo():
     else:
         running = False
     while running:
-        msg = angSer.readline().decode()
-        if not msg:
+        angSer.write("<ANG0030>\r\n".encode('utf-8'))
+        raw = angSer.readline().decode()
+        if not raw:
             continue
-        if msg.find('<') and msg.find('>'):
-            msg = msg.split('<')[-1]
+        rev = raw
+        if rev.find('<') and rev.find('>'):
+            msg = rev.split('<')[-1]
             msg = msg.split('>')[0]
             cmd = msg[0:3]
             param = msg[3:7]
             if cmd == 'GYR':
                 gyroYaw = int(param)
                 # print('thread yaw : ', gyroYaw)
+        if distanceHuman < 2500:
+            if distanceHuman % 2:
+                for i in range(5):
+                    angSer.write("<ANG0030>\r\n".encode('utf-8'))
+            else:
+                for i in range(5):
+                    angSer.write("<ANG0330>\r\n".encode('utf-8'))
     print("disconneted with AngGo Pro!")
     angSer.close()
     return 0
 
 def main():
-    global frame, ampFrame,img,ampImg,crop,running
+    global frame, ampFrame,img,ampImg,crop,running,rev,distanceHuman
     connected = []
     inf = Queue()
     ProcessFacial = Process(target=timaface, args=(inf,))
@@ -304,7 +314,7 @@ def main():
                     #     if np.std(e) > 200 and np.std(e) < 800:
                     #         cadidate.append(np.mean(e))
 
-                    print("center : %f  cluster : %f"%(crop[ch // 2][cw // 2],distanceHuman))
+                    print(rev," distance : ",distanceHuman)
                     # print(centroids)
                     # if lenCF > 10:
                     #     try:
@@ -335,9 +345,8 @@ def main():
                     pupilPos = 80
                     distanceHuman = 3000
 
-
-                heading = np.clip(gyroYaw, -30, 30)
-                print('thread yaw : ', gyroYaw)
+                print(rev, " distance : ", distanceHuman)
+                heading = -1*np.clip(gyroYaw, -30, 30)
                 inf.put([heading, pupilPos, np.clip(distanceHuman,500,3000)])  # x,y,z
 
                 colordis = cv2.applyColorMap(255-frame, cv2.COLORMAP_BONE)
