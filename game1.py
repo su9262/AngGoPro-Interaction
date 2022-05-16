@@ -5,6 +5,14 @@ import pygame
 import random
 import time
 
+#blinking time func
+def time_rand():
+    r = 0.0
+    for i in range(3):
+        r += random.randint(0,10)
+    r /= 5
+    return r
+
 #remapping function
 def remap(x, in_min, in_max, out_min, out_max):
 	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
@@ -37,7 +45,8 @@ def timaface(inf):
 	clock = pygame.time.Clock()
 	# Set up the drawing window
 	screen = pygame.display.set_mode([1920, 515])
-
+	blinkingPeriod = 3.00
+	startTime = time.time()
 	#### INPUT VARIABLEs
 	xInput = 2 # 1 2 3
 	pupilXInput = 2  # 1 2 3 NEW
@@ -71,7 +80,7 @@ def timaface(inf):
 	time.sleep(1)
 	running = True
 	while running:
-
+		dt = clock.tick(60) # 게임화면의 초당 프레임 수 설정
 		if inf is not None:
 			if not inf.empty():
 				data = inf.get()
@@ -144,20 +153,19 @@ def timaface(inf):
 
 		if xLocation >= 1920/2:
 			leftEye.width = 260
-			leftEye.height = 230
+			# leftEye.height = 230
 			rightEye.width = remap(xLocation, 1920/2, 1920, 260, 200)
-			rightEye.height = remap(xLocation, 1920/2, 1920, 230, 280)
+			# rightEye.height = remap(xLocation, 1920/2, 1920, 230, 280)
 			distanceBetweenEyes = remap(xLocation, 1920/2, 1920, (2*1920/16), leftEye.width/2)
 		else :
 			leftEye.width = remap(xLocation, 0, 1920/2, 200, 260)
-			leftEye.height = remap(xLocation, 0, 1920/2, 280, 230)
+			# leftEye.height = remap(xLocation, 0, 1920/2, 280, 230)
 			rightEye.width = 260
-			rightEye.height = 230
+			# rightEye.height = 230
 			distanceBetweenEyes = remap(xLocation, 0, 1920/2, rightEye.width/2, (2*1920/16))
 
 	#	pupilSizeDifference = remap(distanceValue, 0, 10, 0, 20)
 		pupilSizeDifference = remap(3000-distance, 300, 3000 , 5, 30) # for test
-
 		leftEye.pupil_height = remap(pygame.mouse.get_pos()[0], 0, 1920, 0, leftEye.height)
 
 
@@ -182,10 +190,19 @@ def timaface(inf):
 						   int(leftEye.pupil_r) + pupilSizeDifference)
 
 		#Draw blinking
-		randomBLink = random.randint(0, 150)
-		if randomBLink == 55:
+		# randomBLink = random.randint(0, 150)
+		if (round((time.time() -startTime), 2) >= blinkingPeriod) and not blink:
+    		# blinkingPeriod = time_rand()
+			print(round((time.time()-startTime ),2))
+			startTime = time.time()
+			blinkingPeriod = time_rand()
+			print("time set", blinkingPeriod)
 			blink = True
+			
+		# if randomBLink == 55:
+		# 	blink = True
 		# print(blink)
+
 		if blink:
 			if blinkingSpeed > leftEye.height/2:
 				blSp = -10
