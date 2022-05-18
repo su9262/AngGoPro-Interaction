@@ -75,7 +75,7 @@ def timaface(inf):
 	distanceValue = 0 #0~10
 	lookUp = False
 
-	#shake variables
+	#shake variables shake is here ///
 	shake = False
 	randomness = [5,3]
 	shakeVariationX = 0
