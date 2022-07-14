@@ -76,8 +76,8 @@ def timaface(inf):
 	lookUp = False
 
 	#shake variables shake is here ///
-	shake = False
-	randomness = [5,3]
+	shake = True
+	randomness = [1,1]
 	shakeVariationX = 0
 	shakeVariationY = 0
 
@@ -110,9 +110,9 @@ def timaface(inf):
 			if not inf.empty():
 				data = inf.get()
 				if data:
-					heading, humanXpos, distance, = data
+					heading, humanXpos, distance, shake = data
 					xLocationTarget = remap(heading,-30,30,0,1920)  # (1,2,3)
-					pupilXInput = 160-humanXpos  # (1,2,3)
+					# pupilXInput = 160-humanXpos
 					# print(data)
 
 
@@ -154,7 +154,7 @@ def timaface(inf):
 
 
 		#speed of movement eye between pre-set positions
-		speed = remap(abs(xLocationTarget-xLocation), 0, 1920, 0, 30)
+		speed = remap(abs(xLocationTarget-xLocation), 0, 1920, 0, 40)
 		if xLocation > xLocationTarget:
 			xLocation -= speed
 		else:
@@ -169,8 +169,8 @@ def timaface(inf):
 		# else:
 		# 	xTargetPupil = 1920
 
-		# xTargetPupil = pygame.mouse.get_pos()[0]
-		xTargetPupil = remap(pupilXInput, 0, 160, 0, 1920)
+		xTargetPupil = pygame.mouse.get_pos()[0]
+		# xTargetPupil = remap(pupilXInput, 0, 160, 0, 1920)
 
 		# #speed of pupil
 		xPupilspeed = remap(abs(xPupil - xTargetPupil), 0, 1920, 0, 60)
@@ -183,6 +183,7 @@ def timaface(inf):
 								leftEye.width)
 		rightEye.x_pupil = remap(xPupil, 0, 1920, rightEye.width / 2,
 								 rightEye.width )
+
 		# leftEye.x_pupil = remap(xPupil, 0, 1920, leftEye.pupil_r, leftEye.width - leftEye.pupil_r)
 		# rightEye.x_pupil = remap(xPupil, 0, 1920, rightEye.pupil_r, rightEye.width - rightEye.pupil_r)
 
@@ -241,10 +242,10 @@ def timaface(inf):
 		#Draw blinking
 		if (round((time.time() -startTime), 2) >= blinkingPeriod) and not blink:
     		# blinkingPeriod = time_rand()
-			print(round((time.time()-startTime ),2))
+			# print(round((time.time()-startTime ),2))
 			startTime = time.time()
 			blinkingPeriod = time_rand()
-			print("time set", blinkingPeriod)
+			# print("time set", blinkingPeriod)
 			blink = True
 		
 		# print(blink)

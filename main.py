@@ -18,6 +18,8 @@ from matplotlib import pyplot as plt
 import ckwrap
 import kmeans1d
 from game2 import *
+# 1,3,2,4,5
+interface = 2
 
 mp_drawing = mp.solutions.drawing_utils
 mp_selfie_segmentation = mp.solutions.selfie_segmentation
@@ -27,6 +29,8 @@ ANGGOPORT = 'COM13'
 LIDARPORT = 'COM14'
 # LIDARPORT = '/dev/ttyACM1' #0x5740
 # ANGGOPORT = '/dev/ttyACM0'
+DisThr = 6000
+shake = False
 
 BAUDRATE    = 10000000
 startbit    = 0xF5
@@ -42,7 +46,8 @@ crclib = cdll.LoadLibrary('./crc.dll')
 gyroYaw = 0
 running = 0
 rev = ''
-distanceHuman = 0
+humanpos = []
+distanceHuman = 8000
 class CrcCalc:
     def __init__(self):
         self.initValue = 0xFFFFFFFF
@@ -127,7 +132,7 @@ def mediapipeHuman(selfie_segmentation,input_frame,threshold):
         return cv2.merge([ampFrame, ampFrame, ampFrame]),[],None
 
 def commAngGo():
-    global gyroYaw,running,rev,distanceHuman
+    global gyroYaw,running,rev,distanceHuman,humanpos,DisThr,shake
     angSer = serial.Serial(
         port=ANGGOPORT,
         baudrate=115200,
@@ -141,8 +146,13 @@ def commAngGo():
         running = True
     else:
         running = False
+    avoidHuman = False
+    start = time.time()
+    cnt = 0
+    targetYaw = 0
+    xpos = 80
+    ypos = 30
     while running:
-        angSer.write("<ANG0030>\r\n".encode('utf-8'))
         raw = angSer.readline().decode()
         if not raw:
             continue
@@ -154,20 +164,50 @@ def commAngGo():
             param = msg[3:7]
             if cmd == 'GYR':
                 gyroYaw = int(param)
-                # print('thread yaw : ', gyroYaw)
-        if distanceHuman < 2500:
-            if distanceHuman % 2:
-                for i in range(5):
-                    angSer.write("<ANG0030>\r\n".encode('utf-8'))
+        end = time.time()
+        if (end - start) > 0.1:
+            # print('thread yaw : ', gyroYaw)
+            start = end
+
+            if distanceHuman < DisThr and avoidHuman is False:
+                avoidHuman = True
+                xpos, ypos = humanpos
+                angSer.write(bytes('<LIN0030>', 'ascii'))
+                if interface == 2 or interface == 4:
+                    shake = True
+
+
+            if avoidHuman and cnt < 25:
+                cnt = cnt + 1
+                if xpos < 80:
+                    angSer.write(bytes('<ANG0030>', 'ascii'))
+                if xpos >= 80:
+                    angSer.write(bytes('<ANG0330>', 'ascii'))
+            if avoidHuman and cnt < 55:
+                cnt = cnt + 1
+                angSer.write(bytes('<LIN0035>', 'ascii'))
+            elif avoidHuman and cnt < 120:
+                cnt = cnt + 1
+                angSer.write(bytes('<LIN00035>', 'ascii'))
+                angSer.write(bytes('<ANG0000>', 'ascii'))
             else:
-                for i in range(5):
-                    angSer.write("<ANG0330>\r\n".encode('utf-8'))
+                cnt = 0
+                xpos = 80
+                ypos = 30
+                avoidHuman = False
+                shake = False
+
+
+
+
+
+
     print("disconneted with AngGo Pro!")
     angSer.close()
     return 0
 
 def main():
-    global frame, ampFrame,img,ampImg,crop,running,rev,distanceHuman
+    global frame, ampFrame,img,ampImg,crop,running,rev,distanceHuman,humanpos,interface,DisThr,shake
     connected = []
     inf = Queue()
     ProcessFacial = Process(target=timaface, args=(inf,))
@@ -235,20 +275,20 @@ def main():
     #     setAuto3D
     
     selfie_segmentation = mp_selfie_segmentation.SelfieSegmentation(model_selection=1)
-    b = 0
 
-    # ser.write(bytearray(GetDisAmp))
 
     # ser.write(bytearray(setExposure))
     # ser.write(bytearray(setAuto3D))
-
-    time.sleep(1)
+    a = time.time()
+    b = a
+    # time.sleep(1)
     while running:
+
         ser.write(bytearray(GetDisAmp))
         rxdata = ser.read()
         a = time.time()
         # print("fps : ", round(1 / (a - b)))
-        b = a
+
         if rxdata == b'\xfa':
             
             data = [0xfa]
@@ -261,17 +301,24 @@ def main():
             if result == 1:
                 frame = np.array(data[84:-4])
                 l = len(frame)
-                img = ((frame[1::4] & 0xff) << 8) | (frame[0::4] & 0xff)
-                ampImg = ((frame[3::4] & 0xff) << 8) | (frame[2::4] & 0xff)
+                try:
+                    img = ((frame[1::4] & 0xff) << 8) | (frame[0::4] & 0xff)
+                    ampImg = ((frame[3::4] & 0xff) << 8) | (frame[2::4] & 0xff)
+                except:
+                    continue
 
                 img = np.array(img,dtype=float)
                 ampImg = np.array(ampImg, dtype=float)
+
+
                 img = np.where(img > 8000,8000,img) / 8000 * 255
-                ampImg = np.where(ampImg > 2000, 2000, ampImg) / 2000 * 255
+                ampImg = np.where(ampImg > 2000, 2000, ampImg) / 250 * 255
 
                 frame = np.reshape(img, (60, 160))
                 ampFrame = np.reshape(ampImg, (60, 160))
-                
+
+                ampFrame = np.where(frame >= (DisThr/8000*255), 0, ampFrame)
+
                 frame = cv2.resize(frame, (0, 0), fx=1, fy=1, interpolation=cv2.INTER_CUBIC)
                 ampFrame = cv2.resize(ampFrame, (0, 0), fx=1, fy=1, interpolation=cv2.INTER_CUBIC)
 
@@ -301,58 +348,46 @@ def main():
                     buckets = buckets[:-1]
                     freq = [len(i) for i in buckets]
                     idx = np.argmax(freq)
-
-                    # temp = cv2.merge([segframe,segframe,segframe])
-                    # ampFrame = np.where((temp > n) & (temp < m) ,(255,0,0) , ampFrame)
-
                     distanceHuman = np.mean(buckets[idx])
 
-                    # for i in buckets:
-                    #     print("분산 : ", np.var(i), "표준편차 : ", np.std(i), "평균 : ", np.mean(i))
-                    # cadidate = [9999,]
-                    # for e in buckets:
-                    #     if np.std(e) > 200 and np.std(e) < 800:
-                    #         cadidate.append(np.mean(e))
-
-                    print(rev," distance : ",distanceHuman)
-                    # print(centroids)
-                    # if lenCF > 10:
-                    #     try:
-                    #         km = ckwrap.ckmeans(cropflat,numCluster)
-                    #         buckets = [[],[],[]]
-                    #         for i in range(lenCF):
-                    #             buckets[km.labels[i]].append(cropflat[i])
-                    #         for i,cluster in enumerate(buckets):
-                    #             if np.var(cluster) == 0:
-                    #                 del buckets[i]
-                    #
-                    #         freq = [len(i) for i in buckets]
-                    #         idx = np.argmax(freq)
-                    #         # print("중간 픽셀 거리 : ", crop[ch // 2][cw // 2], end="\t")
-                    #         distanceHuman = np.mean(buckets[idx])
-                    #         # print("kmenas 평균 : ",distanceHuman)
-                    #
-                    #         size = frame.shape
-                    #     except:
-                    #         pass
-                    # if not anggoQueue.empty():
-                    #     yaw = anggoQueue.get()
-                    #     yaw = np.clip(yaw,-90,90)
                     size = frame.shape
                     pupilPos = x + w // 2 #4 - math.ceil((x + w // 2) / size[1] * 3)
+                    if pupilPos < 70:
+                        pupilPos = 10
+                    elif pupilPos > 90:
+                        pupilPos = 190
+                    humanpos = [x+w//2, y+h//2]
 
                 else:
                     pupilPos = 80
-                    distanceHuman = 3000
+                    distanceHuman = 8000
+                    humanpos = [None,None]
 
-                print(rev, " distance : ", distanceHuman)
+                print(rev, " distance : ", distanceHuman, "interfa : ",interface)
+
                 heading = -1*np.clip(gyroYaw, -30, 30)
-                inf.put([heading, pupilPos, np.clip(distanceHuman,500,3000)])  # x,y,z
+
+                if interface == 2: # eye track
+                    inf.put([0, pupilPos, np.clip(distanceHuman,500,3000),shake])  # x,y,z
+                elif interface == 3: # heading
+                    inf.put([heading, 80, np.clip(distanceHuman, 500, 3000),False])  # x,y,z
+                elif interface == 4: # both
+                    inf.put([heading, pupilPos, np.clip(distanceHuman, 500, 3000),shake])  # x,y,z
+                elif interface == 5: # both
+                    inf.put([0, 80, np.clip(distanceHuman, 500, 3000)])  # x,y,z
 
                 colordis = cv2.applyColorMap(255-frame, cv2.COLORMAP_BONE)
                 cv2.imshow("distance", colordis)
                 cv2.imshow("amplitude", ampFrame)
                 key = cv2.waitKey(1) & 0xff
+                if key == ord('1'):
+                    interface = 1
+                elif key == ord('2'):
+                    interface = 2
+                elif key == ord('3'):
+                    interface = 3
+                elif key == ord('4'):
+                    interface = 4
 
                 if key == ord('c'):
                     numCluster = 5
@@ -398,8 +433,9 @@ def main():
     ProcessFacial.join()
     ThreadAngGo.join()
 
-
     print("program terminated")
 
 if __name__ == '__main__':
+    # sys.stdout = open('stdout.txt', 'w')
     main()
+    # sys.stdout.close()
